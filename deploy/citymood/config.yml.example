@@ -1,0 +1,25 @@
+# ============================================================================
+# config.yml.example — boîte INGESTION CityMood (connecteur Salesforce)
+# ----------------------------------------------------------------------------
+# Copie ce fichier en `config.yml` (qui, lui, est gitignoré) :
+#     cp config.yml.example config.yml
+# Puis remplis les lignes vides. Le `config.yml` rempli ne doit JAMAIS être pushé.
+# ----------------------------------------------------------------------------
+# IMPORTANT : les creds Salesforce d'Issy NE sont PAS ici — ils viennent du
+# fichier .env (cf. datasource.py, injection depuis os.environ).
+#
+# Ce fichier ne contient que :
+#   1. la connexion à Elasticsearch (infra CityMood — sert à planifier les syncs
+#      et à stocker l'état/curseur du connecteur),
+#   2. l'enregistrement du connecteur (créé côté Kibana).
+# ============================================================================
+
+# --- Elasticsearch (infra CityMood) -----------------------------------------
+elasticsearch.host:        # ex: https://xxxxx.es.ovh.cloud:9243   (à remplir)
+elasticsearch.api_key:     # clé API Elasticsearch                 (à remplir)
+
+# --- Connecteur (créé dans Kibana, un par tenant) ---------------------------
+connectors:
+  - connector_id:          # ID du connecteur affiché dans Kibana  (à remplir)
+    service_type: salesforce
+    api_key:               # clé API du connecteur                 (à remplir)

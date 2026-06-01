@@ -118,6 +118,21 @@ class SalesforceDataSource(BaseDataSource):
 
     def __init__(self, configuration):
         super().__init__(configuration=configuration)
+        # CityMood : creds Issy depuis le .env (priorité sur la config ES).
+        _SFDC_ENV_TO_CONFIG = {
+            "SFDC_DOMAIN": "domain",
+            "SFDC_CLIENT_ID": "client_id",
+            "SFDC_CLIENT_SECRET": "client_secret",
+        }
+        for env_key, cfg_key in _SFDC_ENV_TO_CONFIG.items():
+            if (val := os.environ.get(env_key)):
+                configuration.get_field(cfg_key).value = val
+
+        # case_fields est une liste : on splitte la chaîne du .env avant d'assigner.
+        if (val := os.environ.get("CASE_FIELDS")):
+            configuration.get_field("case_fields").value = [
+                s.strip() for s in val.split(",") if s.strip()
+            ]
 
         base_url = (
             SALESFORCE_EMULATOR_HOST
@@ -408,7 +423,7 @@ class SalesforceDataSource(BaseDataSource):
                 data = await resp.json()
                 return data.get("anonymized_text", text)
         except Exception as exc:
-            logger.error(f"[Anonymizer] Echec anonymisation : {exc}", exc_info=True)
+            logger.error("[Anonymizer] Echec anonymisation : %s", exc, exc_info=True)
             # Fail-safe : on ne propage pas, on degrade vers texte brut.
             # TODO : decider si on prefere skip le Case en cas d'echec
             #        d'anonymisation (plus prudent RGPD).
@@ -445,12 +460,15 @@ class SalesforceDataSource(BaseDataSource):
             ) as resp:
                 resp.raise_for_status()
                 logger.info(
-                    f"[CityMood] Case {payload['source_id']} forwarded "
-                    f"(status {resp.status})"
+                    "[CityMood] Case %s forwarded (status %s)",
+                    payload["source_id"],
+                    resp.status,
                 )
         except Exception as exc:
             logger.error(
-                f"[CityMood] Echec POST webhook pour {payload['source_id']}: {exc}",
+                "[CityMood] Echec POST webhook pour %s: %s",
+                payload["source_id"],
+                exc,
                 exc_info=True,
             )
 

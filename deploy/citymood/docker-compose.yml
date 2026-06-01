@@ -1,0 +1,45 @@
+# ============================================================================
+# CityMood — déploiement chez Issy : 2 conteneurs (ingestion + anonymizer)
+# Architecture : cf. PASSATION_CONNECTEUR_SALESFORCE.md (§1)
+#
+#   SFDC --HTTPS--> [ingestion] --HTTP--> [anonymizer] --HTTPS--> CityMood cloud
+#
+# Lancer :   cp .env.example .env  &&  cp config.yml.example config.yml
+#            (puis remplir les deux)  &&  docker compose up -d --build
+# ============================================================================
+
+services:
+  # --- Boîte ingestion = ce repo (connecteur Salesforce) --------------------
+  ingestion:
+    build:
+      context: ../..          # racine du repo : le Dockerfile y installe le SDK + l'app
+      dockerfile: Dockerfile
+    image: citymood/ingestion:latest
+    env_file:
+      - .env                  # creds Issy + URLs CityMood (lus par datasource.py)
+    volumes:
+      - ./config.yml:/config/config.yml:ro
+    command: ["/app/bin/elastic-ingest", "-c", "/config/config.yml"]
+    depends_on:
+      - anonymizer-api
+    networks:
+      - citymood
+    restart: unless-stopped
+
+  # --- Anonymizer = repo séparé (C:\Users\moham\Documents\Anonymization) -----
+  # Le nom du service DOIT rester `anonymizer-api` : c'est l'hôte attendu par
+  # ANONYMIZER_URL (http://anonymizer-api:8000) côté ingestion.
+  anonymizer-api:
+    # Option A — builder depuis le repo anonymizer (ajuste le chemin relatif) :
+    # build:
+    #   context: ../../../Anonymization
+    # Option B — utiliser une image déjà construite/publiée :
+    image: citymood/anonymizer:latest
+    networks:
+      - citymood
+    restart: unless-stopped
+    # L'anonymizer écoute en interne sur 8000 (pas besoin d'exposer de port).
+
+networks:
+  citymood:
+    driver: bridge

@@ -13,6 +13,10 @@ __pycache__
 config.yml
 app/connectors_service/config.yml
 
+# CityMood : secrets de déploiement (ne JAMAIS versionner les .env remplis)
+.env
+deploy/citymood/config.yml
+
 # jetbrains files
 .idea
 *.iml
