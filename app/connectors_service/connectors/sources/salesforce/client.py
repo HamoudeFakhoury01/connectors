@@ -98,6 +98,15 @@ class SalesforceClient:
             for obj in configuration["custom_objects_to_sync"]
         ]
 
+        # CityMood : champs Case à récupérer (configurables par tenant).
+        # Chaque tenant (Issy, Airbus, Montans...) a ses propres custom fields
+        # pour le contenu / lieu / catégorie. À demander à l'admin SFDC client.
+        # Format attendu : liste de noms d'API SFDC (ex: ["Subject", "Description__c"]).
+        self.case_fields = configuration.get(
+            "case_fields",
+            ["Subject", "Description", "CaseNumber", "Status"],
+        )
+
     def set_logger(self, logger_):
         self._logger = logger_
 
@@ -781,34 +790,18 @@ class SalesforceClient:
         )
 
     async def _cases_query(self):
+        # CityMood : champs configurables via self.case_fields (cf. __init__).
+        # Chaque tenant a ses propres champs SFDC (standards + custom).
         queryable_fields = await self._select_queryable_fields(
             "Case",
-            [
-                "Subject",
-                "Description",
-                "CaseNumber",
-                "Status",
-                "AccountId",
-                "ParentId",
-                "IsClosed",
-                "IsDeleted",
-            ],
+            self.case_fields,
         )
-
-        email_mesasges_join = await self._email_messages_join_query()
-        case_comments_join = await self._case_comments_join_query()
-        doc_links_join = await self.content_document_links_join()
 
         return (
             SalesforceSoqlBuilder("Case")
             .with_id()
-            .with_default_metafields()
+            .with_default_metafields()  # CreatedDate + LastModifiedDate
             .with_fields(queryable_fields)
-            .with_fields(["Owner.Id", "Owner.Name", "Owner.Email"])
-            .with_fields(["CreatedBy.Id", "CreatedBy.Name", "CreatedBy.Email"])
-            .with_join(email_mesasges_join)
-            .with_join(case_comments_join)
-            .with_join(doc_links_join)
             .build()
         )
 

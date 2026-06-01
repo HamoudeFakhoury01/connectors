@@ -4,9 +4,11 @@
 # you may not use this file except in compliance with the Elastic License 2.0.
 #
 
+import os
 from datetime import datetime
 from functools import partial
 
+import aiohttp
 from connectors_sdk.logger import logger
 from connectors_sdk.source import BaseDataSource, ConfigurableFieldValueError
 from connectors_sdk.utils import (
@@ -83,6 +85,27 @@ class SalesforceDocMapper:
             "url": f"{self.base_url}/{_object.get('Id')}",
         } | _object
 
+    def map_to_citymood(self, case):
+        """Mappe un Case Salesforce vers le format attendu par le webhook
+        CityMood (api/routers/webhook.py - EntryRequest).
+
+        Format de sortie :
+            {
+                "source_type": "salesforce",
+                "source_id": "<Case.Id>",
+                "sender_email": "",
+                "subject": "<Case.Subject>",
+                "content": "<Case.Description>"
+            }
+        """
+        return {
+            "source_type": "salesforce",
+            "source_id": case.get("Id", ""),
+            "sender_email": "",
+            "subject": case.get("Subject") or "",
+            "content": case.get("Description") or "",
+        }
+
 
 class SalesforceDataSource(BaseDataSource):
     """Salesforce"""
@@ -107,6 +130,16 @@ class SalesforceDataSource(BaseDataSource):
         )
         self.doc_mapper = SalesforceDocMapper(base_url)
         self.permissions = {}
+
+        # CityMood : URLs et secrets pour la chaine anonymizer -> webhook.
+        # Lus depuis les variables d'environnement du conteneur ingestion.
+        self._anonymizer_url = os.environ.get(
+            "ANONYMIZER_URL", "http://anonymizer-api:8000"
+        )
+        self._citymood_ingest_url = os.environ.get("CITYMOOD_INGEST_URL", "")
+        self._citymood_tenant_id = os.environ.get("CITYMOOD_TENANT_ID", "")
+        self._webhook_secret = os.environ.get("WEBHOOK_SECRET", "")
+        self._http_session = None  # cree au premier appel (lazy)
 
     def _set_internal_logger(self):
         self.salesforce_client.set_logger(self._logger)
@@ -158,6 +191,21 @@ class SalesforceDataSource(BaseDataSource):
                 "tooltip": "List of custom objects to sync. Use '*' to sync all custom objects. ",
                 "type": "list",
                 "depends_on": [{"field": "sync_custom_objects", "value": True}],
+            },
+            "case_fields": {
+                "display": "textarea",
+                "label": "Case fields to retrieve (CityMood)",
+                "order": 7,
+                "tooltip": (
+                    "Liste des API names SFDC à récupérer sur l'objet Case. "
+                    "À adapter par tenant (Issy, Airbus, Montans...). "
+                    "Champs minimaux : contenu textuel, date. "
+                    "Champs optionnels : lieu, catégorie, statut. "
+                    "Exemple : Subject, Description, Status, Quartier__c, Theme__c"
+                ),
+                "type": "list",
+                "value": "Subject, Description, CaseNumber, Status",
+                "required": False,
             },
             "use_text_extraction_service": {
                 "display": "toggle",
@@ -320,152 +368,91 @@ class SalesforceDataSource(BaseDataSource):
         self.permissions[sobject] = list(access_control)
 
     async def get_docs(self, filtering=None):
-        # We collect all content documents and de-duplicate them before downloading and yielding
-        content_docs = []
+        # CityMood : on ne synchronise que l'objet Case (pilote Issy).
+        # Pas de full sync multi-objets, pas de DLS, pas de pieces jointes.
+        # Chaque Case est envoye a l'anonymizer puis au webhook CityMood.
+        standard_objects_to_sync = self.salesforce_client.standard_objects_to_sync
 
-        if filtering and filtering.has_advanced_rules():
-            advanced_rules = filtering.get_advanced_rules()
+        if "Case" not in standard_objects_to_sync:
+            logger.info("Case not in objects to sync — nothing to do.")
+            return
 
-            for rule in advanced_rules:
-                async for doc in self._get_advanced_sync_rules_result(rule=rule):
-                    content_docs.extend(self._parse_content_documents(doc))
-                    access_control = self.permissions.get(
-                        doc.get("attributes", {}).get("type"), []
-                    )
-                    yield (
-                        self.doc_mapper.map_salesforce_objects(
-                            self._decorate_with_access_control(doc, access_control)
-                        ),
-                        None,
-                    )
+        logger.info("Fetching Salesforce Cases for CityMood ingestion")
+        async for case in self.salesforce_client.get_cases():
+            await self._send_to_anonymizer(case)
 
-        else:
-            standard_objects_to_sync = (
-                STANDARD_SOBJECTS
-                if [WILDCARD] == self.salesforce_client.standard_objects_to_sync
-                else self.salesforce_client.standard_objects_to_sync
+    def _get_http_session(self):
+        """Cree (ou reutilise) une session aiohttp pour les appels
+        anonymizer + webhook. Une seule session par instance pour eviter
+        l'overhead de creation/fermeture a chaque Case."""
+        if self._http_session is None or self._http_session.closed:
+            self._http_session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=30)
             )
-            logger.info(f"Fetching Standard Objects: {standard_objects_to_sync}")
-            for sobject in standard_objects_to_sync:
-                await self._fetch_users_with_read_access(sobject=sobject)
+        return self._http_session
 
-            if "Account" in standard_objects_to_sync:
-                async for account in self.salesforce_client.get_accounts():
-                    content_docs.extend(self._parse_content_documents(account))
-                    access_control = self.permissions.get("Account", [])
-                    yield (
-                        self.doc_mapper.map_salesforce_objects(
-                            self._decorate_with_access_control(account, access_control)
-                        ),
-                        None,
-                    )
+    async def _anonymize_text(self, text):
+        """Appelle le service anonymizer et retourne le texte sans PII.
+        Si le texte est vide ou si l'appel echoue, on retourne le texte
+        tel quel (mode degrade : mieux vaut envoyer du brut que rien)."""
+        if not text or not text.strip():
+            return text
 
-            if "Opportunity" in standard_objects_to_sync:
-                async for opportunity in self.salesforce_client.get_opportunities():
-                    content_docs.extend(self._parse_content_documents(opportunity))
-                    access_control = self.permissions.get("Opportunity", [])
-                    yield (
-                        self.doc_mapper.map_salesforce_objects(
-                            self._decorate_with_access_control(
-                                opportunity, access_control
-                            )
-                        ),
-                        None,
-                    )
+        session = self._get_http_session()
+        try:
+            async with session.post(
+                f"{self._anonymizer_url}/api/v1/anonymize",
+                json={"text": text},
+            ) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                return data.get("anonymized_text", text)
+        except Exception as exc:
+            logger.error(f"[Anonymizer] Echec anonymisation : {exc}", exc_info=True)
+            # Fail-safe : on ne propage pas, on degrade vers texte brut.
+            # TODO : decider si on prefere skip le Case en cas d'echec
+            #        d'anonymisation (plus prudent RGPD).
+            return text
 
-            if "Contact" in standard_objects_to_sync:
-                async for contact in self.salesforce_client.get_contacts():
-                    content_docs.extend(self._parse_content_documents(contact))
-                    access_control = self.permissions.get("Contact", [])
-                    yield (
-                        self.doc_mapper.map_salesforce_objects(
-                            self._decorate_with_access_control(contact, access_control)
-                        ),
-                        None,
-                    )
+    async def _send_to_anonymizer(self, case):
+        """Pipeline complet pour un Case Salesforce :
+        1. Mapping vers le format CityMood
+        2. Anonymisation du subject + content (PII supprimees)
+        3. POST vers le webhook CityMood (cloud OVH)
+        """
+        if not self._citymood_ingest_url or not self._citymood_tenant_id:
+            logger.warning(
+                "[CityMood] CITYMOOD_INGEST_URL ou CITYMOOD_TENANT_ID manquant — "
+                "Case ignore."
+            )
+            return
 
-            if "Lead" in standard_objects_to_sync:
-                async for lead in self.salesforce_client.get_leads():
-                    content_docs.extend(self._parse_content_documents(lead))
-                    access_control = self.permissions.get("Lead", [])
-                    yield (
-                        self.doc_mapper.map_salesforce_objects(
-                            self._decorate_with_access_control(lead, access_control)
-                        ),
-                        None,
-                    )
+        payload = self.doc_mapper.map_to_citymood(case)
+        payload["subject"] = await self._anonymize_text(payload["subject"])
+        payload["content"] = await self._anonymize_text(payload["content"])
 
-            if "Campaign" in standard_objects_to_sync:
-                async for campaign in self.salesforce_client.get_campaigns():
-                    content_docs.extend(self._parse_content_documents(campaign))
-                    access_control = self.permissions.get("Campaign", [])
-                    yield (
-                        self.doc_mapper.map_salesforce_objects(
-                            self._decorate_with_access_control(campaign, access_control)
-                        ),
-                        None,
-                    )
+        session = self._get_http_session()
+        headers = {
+            "X-Tenant-Id": self._citymood_tenant_id,
+            "X-Webhook-Secret": self._webhook_secret,
+        }
 
-            if "Case" in standard_objects_to_sync:
-                async for case in self.salesforce_client.get_cases():
-                    content_docs.extend(self._parse_content_documents(case))
-                    access_control = self.permissions.get("Case", [])
-                    yield (
-                        self.doc_mapper.map_salesforce_objects(
-                            self._decorate_with_access_control(case, access_control)
-                        ),
-                        None,
-                    )
-
-            if self.salesforce_client.sync_custom_objects:
-                custom_objects_to_sync = (
-                    await self.salesforce_client._custom_objects()
-                    if [WILDCARD] == self.salesforce_client.custom_objects_to_sync
-                    else self.salesforce_client.custom_objects_to_sync
+        try:
+            async with session.post(
+                self._citymood_ingest_url,
+                json=payload,
+                headers=headers,
+            ) as resp:
+                resp.raise_for_status()
+                logger.info(
+                    f"[CityMood] Case {payload['source_id']} forwarded "
+                    f"(status {resp.status})"
                 )
-                logger.info(f"Fetching Custom Objects: {custom_objects_to_sync}")
-
-                for custom_object in custom_objects_to_sync:
-                    await self._fetch_users_with_read_access(sobject=custom_object)
-                async for custom_record in self.salesforce_client.get_custom_objects():
-                    content_docs.extend(self._parse_content_documents(custom_record))
-                    access_control = self.permissions.get(
-                        custom_record.get("attributes", {}).get("type"), []
-                    )
-                    yield (
-                        self.doc_mapper.map_salesforce_objects(
-                            self._decorate_with_access_control(
-                                custom_record, access_control
-                            )
-                        ),
-                        None,
-                    )
-
-        # Note: this could possibly be done on the fly if memory becomes an issue
-        content_docs = self._combine_duplicate_content_docs(content_docs)
-        for content_doc in content_docs:
-            access_control = []
-            async for permission in self.salesforce_client.get_file_access(
-                document_id=content_doc["Id"]
-            ):
-                access_control.append(_prefix_user_id(permission.get("LinkedEntityId")))
-                access_control.append(
-                    _prefix_user(permission.get("LinkedEntity", {}).get("Name"))
-                )
-
-            content_version_id = (
-                content_doc.get("LatestPublishedVersion", {}) or {}
-            ).get("Id")
-            if not content_version_id:
-                self._logger.debug(
-                    f"Couldn't find the latest content version for {content_doc.get('Title')}, skipping."
-                )
-                continue
-
-            doc = self.doc_mapper.map_content_document(content_doc)
-            doc = await self.get_content(doc, content_version_id)
-
-            yield self._decorate_with_access_control(doc, access_control), None
+        except Exception as exc:
+            logger.error(
+                f"[CityMood] Echec POST webhook pour {payload['source_id']}: {exc}",
+                exc_info=True,
+            )
 
     async def get_content(self, doc, content_version_id):
         file_size = doc["content_size"]
