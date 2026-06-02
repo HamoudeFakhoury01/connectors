@@ -1,7 +1,8 @@
 # Passation — Connecteur Salesforce CityMood
 
 > Document de passation pour le développement du connecteur Salesforce.
-> Dernière mise à jour : 08/05/2026 — Mohamed
+> Dernière mise à jour : 01/06/2026 — boîte ingestion Docker + creds via `.env` (voir §3c, §7, §10)
+> Précédente : 08/05/2026 — Mohamed
 
 ---
 
@@ -128,6 +129,32 @@ async for case in self.salesforce_client.get_cases():
 **`_anonymize_text()`** + **`_send_to_anonymizer()`** : nouvelles méthodes qui
 appellent l'anonymizer puis postent au webhook CityMood. Une session aiohttp
 réutilisable est créée en lazy, fermée dans `close()`.
+Logs paramétrés (`logger.info("... %s", x)`), pas de f-string.
+
+### c) `datasource.py` — creds Salesforce d'Issy depuis le `.env` (01/06/2026)
+
+**`__init__`** (tout en haut, AVANT la construction du client) : injection des
+identifiants Salesforce depuis les variables d'environnement, en priorité sur la
+config Elasticsearch. Objectif : remplir les creds d'Issy dans un simple `.env`
+plutôt que dans Kibana.
+
+```python
+_SFDC_ENV_TO_CONFIG = {
+    "SFDC_DOMAIN": "domain",
+    "SFDC_CLIENT_ID": "client_id",
+    "SFDC_CLIENT_SECRET": "client_secret",
+}
+for env_key, cfg_key in _SFDC_ENV_TO_CONFIG.items():
+    if (val := os.environ.get(env_key)):
+        configuration.get_field(cfg_key).value = val
+# CASE_FIELDS : splitté en liste (champ de type list, pas str)
+```
+
+⚠️ Deux pièges : (1) l'injection doit rester **avant** la construction du client,
+sinon le client reçoit l'ancienne valeur ; (2) `case_fields` est de type `list` →
+il faut splitter la chaîne `.env` à la main (le setter `Field.value` ne reconvertit
+pas). Si `.env` ET config ES sont vides → `validate_config()` plante bruyamment
+(comportement voulu, sécurité/RGPD).
 
 ---
 
@@ -210,13 +237,14 @@ Le connecteur lit ces variables :
 ## 7. Ce qu'il reste à faire (TODO priorisé)
 
 ### Bloquant avant tout test bout-en-bout
-1. **Trancher l'archi de sortie** (ingestion vs anonymizer qui poste au webhook) — avec Mohamed.
-2. **Patcher les imports cassés** : le code Elastic importe `connectors_sdk.logger`,
-   `connectors.access_control`, `connectors.utils` (CancellableSleeps, retryable),
-   `connectors_sdk.source.BaseDataSource`. Ces modules viennent du SDK Elastic.
-   → Soit installer le SDK, soit remplacer ces imports (logging standard, etc.).
-3. **Persistance du bookmark** : `LastModifiedDate` doit survivre au redémarrage du
-   conteneur (volume Docker `./bookmark`). Sinon doublons ou Cases perdus.
+1. **Trancher l'archi de sortie** (ingestion vs anonymizer qui poste au webhook) — avec Mohamed. _(toujours ouvert)_
+2. ~~**Patcher les imports cassés**~~ → ✅ **RÉSOLU (01/06/2026)**. On garde le framework
+   Elastic et on installe le SDK : le build Docker lance `make install-package` qui
+   installe `libs/connectors_sdk` + l'app dans le venv. Les imports `connectors_sdk.*`
+   se résolvent. Validé par `docker compose build ingestion` + import runtime (voir §10).
+3. ~~**Persistance du bookmark**~~ → ✅ **RÉSOLU**. Avec le framework Elastic, l'état
+   (curseur `LastModifiedDate`) est stocké dans l'index connecteur **Elasticsearch**,
+   pas dans un volume local. Plus besoin du volume `./bookmark`.
 
 ### Important
 4. **Gestion d'erreur webhook** : si le webhook CityMood est down, il faut une queue /
@@ -227,7 +255,8 @@ Le connecteur lit ces variables :
    restriction se fait via un Permission Set lecture seule sur `Case` côté Issy.
 
 ### Plus tard
-7. Dockerfile + docker-compose pour les 2 conteneurs.
+7. ~~Dockerfile + docker-compose pour les 2 conteneurs.~~ → ✅ **FAIT (01/06/2026)** :
+   `deploy/citymood/` (voir §10). Reste à brancher la vraie image anonymizer.
 8. Confirmer avec Issy les vrais noms de champs (`Quartier__c`, etc.) et si l'objet
    s'appelle bien `Case`.
 
@@ -254,3 +283,49 @@ Le connecteur lit ces variables :
 - **PII** : données personnelles (nom, email, tel...) que l'anonymizer retire.
 - **Tenant** : un client (Issy). Le backend est multi-tenant.
 - **DLQ** : Dead Letter Queue, file des messages échoués à retraiter.
+
+---
+
+## 10. Déploiement Docker — boîte ingestion (fait le 01/06/2026)
+
+Le conteneur ingestion est scaffoldé dans **`deploy/citymood/`** :
+
+| Fichier | Rôle | Qui le remplit |
+|---------|------|----------------|
+| `docker-compose.yml` | Branche `ingestion` (ce repo) + `anonymizer-api`. | — (fini) |
+| `.env.example` | Creds Issy (`SFDC_*`, `CASE_FIELDS`) + URLs CityMood. | Toi, quand Issy donne les creds |
+| `config.yml.example` | Connexion Elasticsearch + enregistrement du connecteur. | Infra CityMood (host ES + `connector_id` Kibana) |
+
+⚠️ **Sécurité** : les versions remplies `.env` et `config.yml` sont **gitignorées**
+→ ne JAMAIS les committer. Seuls les `.example` sont versionnés.
+
+### Lancer
+```bash
+cd deploy/citymood
+cp .env.example .env              # puis remplir avec les infos d'Issy
+cp config.yml.example config.yml  # puis remplir (host ES + connector_id Kibana)
+docker compose up -d --build
+```
+
+### Tester (validé le 01/06/2026)
+```bash
+# 1. L'image build (installe le SDK + l'app) :
+docker compose -f deploy/citymood/docker-compose.yml build ingestion
+
+# 2. Les imports se résolvent à l'exécution :
+docker run --rm citymood/ingestion:latest \
+  /app/app/connectors_service/.venv/bin/python \
+  -c "from connectors.sources.salesforce.datasource import SalesforceDataSource; print('OK')"
+
+# 3. L'injection .env fonctionne (les 4 champs + split liste) : voir la commande
+#    de test avec -e SFDC_DOMAIN=... dans l'historique de la session.
+```
+
+### Encore à faire pour un run réel (dépend de morceaux externes)
+- creds réels d'Issy → dans `.env`,
+- une instance Elasticsearch (CityMood) → dans `config.yml`,
+- l'image `citymood/anonymizer` (repo de Mohamed) → branchée dans le compose
+  (aujourd'hui `image: citymood/anonymizer:latest` = placeholder).
+
+Travail livré sur la branche **`feat/docker-ingestion-citymood`** (fork
+`HamoudeFakhoury01/connectors`).
