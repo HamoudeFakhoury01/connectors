@@ -4,6 +4,7 @@ Outil : liste FR curée + regex (pas de lib). Les motifs sont ANCRÉS en début
 de ligne (^ + re.MULTILINE) pour ne pas manger un mot de politesse situé au
 milieu d'une phrase (cf. SPEC §4).
 """
+
 import re
 
 from connectors.cleaning.base import Cleaner
@@ -15,7 +16,7 @@ _OPENINGS = [
     r"madame,?\s+monsieur",
     r"madame",
     r"monsieur",
-    r"cher(?:e|s|es)?",          # cher, chère, chers, chères
+    r"cher(?:e|s|es)?",  # cher, chère, chers, chères
     r"salut",
     r"coucou",
 ]
@@ -27,7 +28,7 @@ _CLOSINGS = [
     r"sincères salutations",
     r"salutations distinguées",
     r"merci (?:d'avance|par avance)",
-    r"dans l'attente de[^\n]*",   # "dans l'attente de votre retour..."
+    r"dans l'attente de[^\n]*",  # "dans l'attente de votre retour..."
     r"bonne (?:journée|réception)",
     r"à bientôt",
 ]
@@ -51,4 +52,3 @@ class PolitenessStripper(Cleaner):
         text = self._opening_re.sub("", text)
         text = self._closing_re.sub("", text)
         return text.strip()
-       

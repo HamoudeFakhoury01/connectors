@@ -3,6 +3,7 @@
 ⚠️ Nécessite spaCy + le modèle fr_core_news_sm → tourne en DOCKER, pas en local
 (spaCy ne s'installe pas sur l'environnement Windows/py3.14).
 """
+
 import pytest
 
 # Skip ce fichier si spaCy n'est pas installé (cas de l'env local Windows/py3.14).
@@ -23,4 +24,3 @@ def test_fail_loud_si_pas_un_str():
     norm = SpacyNormalizer()
     with pytest.raises(TypeError):
         norm.clean(None)
-   

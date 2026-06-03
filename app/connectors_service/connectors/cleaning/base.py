@@ -4,6 +4,7 @@ Tout cleaner respecte la même signature `clean(text: str) -> str` :
 fonction pure, déterministe, sans effet de bord. C'est ce qui les rend
 interchangeables et réordonnables dans le CleaningPipeline.
 """
+
 from abc import ABC, abstractmethod
 
 

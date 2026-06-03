@@ -1,4 +1,5 @@
 """Tests unitaires du PolitenessStripper, en isolation (cf. SPEC §8)."""
+
 from connectors.cleaning.politeness import PolitenessStripper
 
 
@@ -20,8 +21,5 @@ def test_conserve_bonjour_au_milieu_de_phrase():
     stripper = PolitenessStripper()
     texte = "Je passe vous dire bonjour demain au sujet du bruit."
 
-    # TODO à toi :
-    #   1. resultat = stripper.clean(texte)
-    #   2. assert que "bonjour" est toujours présent dans le résultat
-    #      (indice : `assert "bonjour" in resultat`)
-    ...
+    resultat = stripper.clean(texte)
+    assert "bonjour" in resultat

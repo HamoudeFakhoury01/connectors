@@ -4,6 +4,7 @@
 décision en attente côté Mohamed). Ce module s'AUTO-SKIP tant que talon est
 absent, et tournera automatiquement le jour où talon sera disponible.
 """
+
 import pytest
 
 # Si "talon" n'est pas importable -> pytest SKIP tout ce fichier (au lieu de
@@ -26,5 +27,5 @@ def test_retire_la_signature():
 
     # NB : asserts "best guess" sur le comportement de talon — à confirmer/ajuster
     # le jour où talon tournera réellement.
-    assert "lampadaire" in resultat      # le corps du message est conservé
+    assert "lampadaire" in resultat  # le corps du message est conservé
     assert "Jean Dupont" not in resultat  # la signature est retirée

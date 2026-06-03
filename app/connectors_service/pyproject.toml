@@ -179,6 +179,11 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 "scripts/verify.py" = ["EM"]
 "tests/*" = ["B017", "S101", "S", "ASYNC110"]
 "tests/conftest.py" = ["EM"]
+# CityMood : tests co-localisés du module de nettoyage (asserts attendus en test)
+"connectors/cleaning/tests/*" = ["B017", "S101", "S", "ASYNC110"]
+# CityMood : code propre du module nettoyage -> pas le header copyright Elastic
+# (à confirmer avec Mohamed : décision de licence)
+"connectors/cleaning/**" = ["CPY001"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["connectors", "tests"]

@@ -13,6 +13,7 @@ Corrections par rapport au snippet initial (SPEC §5) :
      un texte à la fois ; on batchera quand le flux le justifiera).
   5. Fail-loud : entrée non-str → erreur typée, jamais de `return ""` silencieux.
 """
+
 import re
 
 import spacy
@@ -24,17 +25,13 @@ class SpacyNormalizer(Cleaner):
     def __init__(self, model: str = "fr_core_news_sm"):
         # Corrections 2 + 3 : charger le modèle UNE fois et désactiver les
         # composants qu'on n'utilise pas (on ne se sert que de token.is_stop).
-        self.nlp = spacy.load(
-            model, disable=["parser", "ner", "tagger", "lemmatizer"]
-        )
+        self.nlp = spacy.load(model, disable=["parser", "ner", "tagger", "lemmatizer"])
 
     def clean(self, text: str) -> str:
-        # TODO à toi :
-        #  1. FAIL-LOUD (correction 5) : si `text` n'est pas un str → lever une
-        #     TypeError avec un message clair (mentionne le type reçu).
-        #     Surtout PAS de `return ""`.
+        # Fail-loud (correction 5) : entrée non-str → erreur typée, jamais "".
         if not isinstance(text, str):
-            raise TypeError(f"SpacyNormalizer attend un str, reçu : {type(text).__name__}")
+            msg = f"SpacyNormalizer attend un str, reçu : {type(text).__name__}"
+            raise TypeError(msg)
         text = text.lower()
         text = re.sub(r"\d+", "", text)
         text = re.sub(r"[^\w\s]", "", text)
@@ -42,4 +39,3 @@ class SpacyNormalizer(Cleaner):
         doc = self.nlp(text)
         tokens = [token.text for token in doc if not token.is_stop]
         return " ".join(tokens)
-        

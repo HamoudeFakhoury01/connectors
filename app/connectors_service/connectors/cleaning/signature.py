@@ -12,6 +12,7 @@ Outil : talon (Mailgun, open-source). On utilise la variante heuristique
 
 Ordre : avant PolitenessStripper (la politesse est souvent DANS la signature, §6).
 """
+
 from talon.signature.bruteforce import extract_signature
 
 from connectors.cleaning.base import Cleaner
@@ -24,4 +25,3 @@ class SignatureStripper(Cleaner):
     def clean(self, text: str) -> str:
         stripped, _signature = extract_signature(text)
         return stripped
-        
