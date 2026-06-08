@@ -19,6 +19,7 @@ _OPENINGS = [
     r"cher(?:e|s|es)?",  # cher, chère, chers, chères
     r"salut",
     r"coucou",
+    r"hello",
 ]
 
 # Clôtures (fin de message).

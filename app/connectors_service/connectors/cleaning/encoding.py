@@ -16,4 +16,5 @@ class EncodingFixer(Cleaner):
     # Pas d'__init__ : ftfy.fix_text est une fonction pure, aucun état à préparer.
 
     def clean(self, text: str) -> str:
-        return ftfy.fix_text(text)
+        text = ftfy.fix_text(text)
+        return text.replace("\u00a0", " ").replace("\u202f", " ")
