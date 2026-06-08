@@ -1,6 +1,13 @@
 """SpacyNormalizer : normalisation finale du texte.
 
-Minuscules + suppression des chiffres, de la ponctuation et des stopwords FR.
+⚠️ MIS DE CÔTÉ (décision Mohamed) : spaCy génère trop de problèmes pour l'instant
+(apostrophes, casse/ponctuation détruites, dépendance lourde). Le code reste
+prêt, mais `spacy` n'est PAS installé (retiré du pyproject) et ce cleaner n'est
+PAS dans le pipeline actif. Son test s'auto-skip via pytest.importorskip("spacy").
+
+
+Minuscules + suppression de la ponctuation et des stopwords FR.
+Les chiffres sont CONSERVÉS (ils portent du sens : « 22h », « 3 semaines »…).
 Étape DESTRUCTIVE → doit être le DERNIER cleaner, et rester désactivable /
 déplaçable (cf. SPEC §6 : un anonymiseur à base de NER a besoin de la casse et
 de la ponctuation que ce cleaner détruit).
@@ -33,7 +40,6 @@ class SpacyNormalizer(Cleaner):
             msg = f"SpacyNormalizer attend un str, reçu : {type(text).__name__}"
             raise TypeError(msg)
         text = text.lower()
-        text = re.sub(r"\d+", "", text)
         text = re.sub(r"[^\w\s]", "", text)
         text = re.sub(r"\s+", " ", text).strip()
         doc = self.nlp(text)

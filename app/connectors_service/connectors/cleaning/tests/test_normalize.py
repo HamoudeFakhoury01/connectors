@@ -13,11 +13,11 @@ pytest.importorskip("spacy")
 from connectors.cleaning.normalize import SpacyNormalizer  # noqa: E402
 
 
-def test_normalise_minuscules_chiffres_ponctuation_stopwords():
+def test_normalise_minuscules_ponctuation_stopwords():
     norm = SpacyNormalizer()
     resultat = norm.clean("Le PARC est SALE 123 !!!")
-    # minuscules + chiffres/ponctuation retirés + stopwords ("le", "est") retirés
-    assert resultat == "parc sale"
+    # minuscules + ponctuation/stopwords ("le", "est") retirés ; les chiffres restent
+    assert resultat == "parc sale 123"
 
 
 def test_fail_loud_si_pas_un_str():

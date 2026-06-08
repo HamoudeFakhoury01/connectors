@@ -40,6 +40,7 @@ dependencies = [
     "elastic-agent-client==0.0.1.dev2",
     "elastic-transport==8.17.1",
     "elasticsearch[async]==8.18.0",
+    "email-reply-parser==0.5.12",  # SignatureStripper (cleaning) - pur Python, remplace talon
     "envyaml==1.10.211231",
     "exchangelib==5.4.0",
     "fastjsonschema==2.16.2",
@@ -70,8 +71,6 @@ dependencies = [
     "redis==5.0.1",
     "requests==2.32.4",
     "simple-term-menu==1.6.4",
-    "spacy==3.7.5",  # SpacyNormalizer (cleaning)
-    "fr_core_news_sm @ https://github.com/explosion/spacy-models/releases/download/fr_core_news_sm-3.7.0/fr_core_news_sm-3.7.0-py3-none-any.whl",  # modèle FR (option A : wheel par URL)
     "sqlalchemy-pytds==0.3.5",
     "SQLAlchemy[asyncio]==2.0.1; platform_machine=='arm64'",
     "tabulate==0.9.0",
@@ -147,6 +146,9 @@ filterwarnings = [
     "ignore::pytest.PytestUnraisableExceptionWarning",
     # this error comes from 8.16 Elasticsearch client: we use some non-GA features in our CI code
     "ignore::elasticsearch.exceptions.GeneralAvailabilityWarning",
+    # CityMood : email_reply_parser (SignatureStripper) passe `count` en positionnel
+    # à re.sub -> DeprecationWarning depuis Python 3.13. Bug interne de la lib, inoffensif.
+    "ignore::DeprecationWarning:email_reply_parser",
 ]
 
 [tool.pyright]

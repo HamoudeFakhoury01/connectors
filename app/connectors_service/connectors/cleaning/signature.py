@@ -1,27 +1,35 @@
 """SignatureStripper : retire le bloc signature en fin de message.
 
-⚠️ REPORTÉ (1er jet) : talon n'est PAS installé — sa dépendance `cchardet` exige
-un compilateur C++ absent de l'image Wolfi. Ne PAS importer ce module tant que
-l'intégration talon n'est pas tranchée (cf. message à Mohamed / SPEC §10).
-Le code reste prêt à brancher : grâce au contrat Cleaner, l'ajouter = 1 ligne.
+Outil : `email_reply_parser` (portage pur Python du parser de GitHub/Zapier),
+choisi plutôt que talon (qui dépend de `cchardet`, non compilable dans Wolfi).
 
-Outil : talon (Mailgun, open-source). On utilise la variante heuristique
-`bruteforce.extract_signature(text)`, qui ne demande PAS d'expéditeur
-(contrairement à `talon.signature.extract` qui exige un `sender` + `talon.init()`).
-Ça colle à notre contrat `clean(text) -> str` (cf. SPEC §4).
+On combine deux passes :
+  1. `email_reply_parser.parse_reply` : cas standards (délimiteur '-- ', etc.).
+  2. une regex maison pour les signatures AUTO de clients mobiles/mail que la lib
+     rate parfois (« Sent from my iPhone », « Envoyé de mon iPhone »…). Ces bouts
+     polluent l'analyse de sujets (BERTrend), donc on les retire explicitement.
 
 Ordre : avant PolitenessStripper (la politesse est souvent DANS la signature, §6).
 """
 
-from talon.signature.bruteforce import extract_signature
+import re
+
+from email_reply_parser import EmailReplyParser
 
 from connectors.cleaning.base import Cleaner
 
+# Signatures auto ancrées en DÉBUT de ligne ; tout ce qui suit la formule jusqu'à
+# la fin du message est retiré (la signature est toujours en fin). Ancrage en
+# début de ligne pour éviter de couper une phrase qui contiendrait ces mots.
+_AUTO_SIGNOFF_RE = re.compile(
+    r"^[ \t]*(?:sent from my|envoyé de mon|envoyé depuis|envoyé à partir|"
+    r"get outlook for|obtenir outlook)\b.*",
+    re.IGNORECASE | re.MULTILINE | re.DOTALL,
+)
+
 
 class SignatureStripper(Cleaner):
-    # Pas d'__init__ : bruteforce.extract_signature n'a pas besoin de talon.init()
-    # (aucun modèle ML à charger), contrairement à talon.signature.extract.
-
     def clean(self, text: str) -> str:
-        stripped, _signature = extract_signature(text)
-        return stripped
+        text = EmailReplyParser.parse_reply(text)
+        text = _AUTO_SIGNOFF_RE.sub("", text)
+        return text.strip()
