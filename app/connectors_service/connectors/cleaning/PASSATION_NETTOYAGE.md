@@ -156,14 +156,21 @@ Longueur body moyenne : **3774 → 2189 car (−42%)**. 250/250 traités, aucun 
 
 ## 7. TODO (ce qui reste)
 
-1. **Brancher le pipeline dans `datasource.py`** : entre `map_to_citymood` et
-   `_anonymize_text` dans `_send_to_anonymizer`. ⚠️ **Bloqué** : confirmer le contrat
-   réel de l'anonymiseur de Mehdi (endpoint, champs requête/réponse) — le code actuel
-   suppose `POST /api/v1/anonymize {"text": …} → {"anonymized_text": …}`.
-2. **Décision Mohamed** : ajouter `ImageTagStripper` / améliorer signatures, ou bruit
+0. ✅ **FAIT — Brancher le pipeline dans `datasource.py`** : dans `_send_to_anonymizer`,
+   on nettoie `subject` + `content` (6 cleaners) **entre** `map_to_citymood` et
+   `_anonymize_text`. Pipeline créé une fois dans `__init__`. (commit `e5e0ec1`)
+1. **Confirmer le contrat de l'anonymiseur de Mehdi** : le code suppose
+   `POST {ANONYMIZER_URL}/api/v1/anonymize {"text": …} → {"anonymized_text": …}`.
+   À vérifier/ajuster dans `_anonymize_text` — nécessaire pour le run e2e (n'a PAS
+   bloqué le branchement).
+2. ⚠️ **Merge des 2 branches** : `__init__` de `SalesforceDataSource` est modifié à la
+   fois ici (création du pipeline) ET sur `feat/docker-ingestion-citymood` (injection
+   `.env`). → **petit conflit à résoudre** au merge dans `main` (garder les deux blocs).
+3. **Décision Mohamed** : ajouter `ImageTagStripper` / améliorer signatures, ou bruit
    actuel suffisant ?
-3. **Réactiver spaCy APRÈS l'anonymisation** quand l'archive de sortie sera fixée.
-4. **Ouvrir la PR** de `feat/cleaning-module` (base = fork `HamoudeFakhoury01`, **pas**
+4. **Réactiver spaCy APRÈS l'anonymisation** quand l'archi de sortie sera fixée
+   (rappel : l'anonymiseur NER a besoin de la casse/ponctuation → spaCy va APRÈS).
+5. **Ouvrir la PR** de `feat/cleaning-module` (base = fork `HamoudeFakhoury01`, **pas**
    Elastic).
 
 ---
