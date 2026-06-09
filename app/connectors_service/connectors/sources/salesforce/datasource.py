@@ -20,6 +20,13 @@ from connectors.access_control import (
     es_access_control_query,
     prefix_identity,
 )
+from connectors.cleaning.encoding import EncodingFixer
+from connectors.cleaning.footer import FooterStripper
+from connectors.cleaning.pipeline import CleaningPipeline
+from connectors.cleaning.politeness import PolitenessStripper
+from connectors.cleaning.reply_chain import ReplyChainStripper
+from connectors.cleaning.signature import SignatureStripper
+from connectors.cleaning.url import UrlStripper
 from connectors.sources.salesforce.client import SalesforceClient
 from connectors.sources.salesforce.constants import (
     BASE_URL,
@@ -140,6 +147,16 @@ class SalesforceDataSource(BaseDataSource):
         self._citymood_tenant_id = os.environ.get("CITYMOOD_TENANT_ID", "")
         self._webhook_secret = os.environ.get("WEBHOOK_SECRET", "")
         self._http_session = None  # cree au premier appel (lazy)
+        self._cleaning_pipeline = CleaningPipeline(
+            [
+                EncodingFixer(),
+                ReplyChainStripper(),
+                FooterStripper(),
+                UrlStripper(),
+                SignatureStripper(),
+                PolitenessStripper(),
+            ]
+        )
 
     def _set_internal_logger(self):
         self.salesforce_client.set_logger(self._logger)
@@ -428,6 +445,8 @@ class SalesforceDataSource(BaseDataSource):
             return
 
         payload = self.doc_mapper.map_to_citymood(case)
+        payload["subject"] = self._cleaning_pipeline.run(payload["subject"])
+        payload["content"] = self._cleaning_pipeline.run(payload["content"])
         payload["subject"] = await self._anonymize_text(payload["subject"])
         payload["content"] = await self._anonymize_text(payload["content"])
 
