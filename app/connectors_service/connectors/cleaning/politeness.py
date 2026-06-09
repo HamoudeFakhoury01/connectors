@@ -29,7 +29,8 @@ _CLOSINGS = [
     r"sincères salutations",
     r"salutations distinguées",
     r"merci (?:d'avance|par avance)",
-    r"dans l'attente de[^\n]*",  # "dans l'attente de votre retour..."
+    r"dans l'attente",  # "Dans l'attente," OU "...de votre retour" (reste de ligne mangé par le motif global)
+    r"en attente",  # "En attente de votre retour,"
     r"bonne (?:journée|réception)",
     r"à bientôt",
 ]

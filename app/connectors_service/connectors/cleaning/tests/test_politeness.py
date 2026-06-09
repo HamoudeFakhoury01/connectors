@@ -23,3 +23,14 @@ def test_conserve_bonjour_au_milieu_de_phrase():
 
     resultat = stripper.clean(texte)
     assert "bonjour" in resultat
+
+
+def test_retire_clotures_attente():
+    # "Dans l'attente," (sans "de") et "En attente de votre retour," doivent partir.
+    stripper = PolitenessStripper()
+
+    assert stripper.clean("Pas de réponse.\nDans l'attente,") == "Pas de réponse."
+    assert (
+        stripper.clean("Plus d'eau chaude.\nEn attente de votre retour,")
+        == "Plus d'eau chaude."
+    )
