@@ -163,9 +163,11 @@ Longueur body moyenne : **3774 → 2189 car (−42%)**. 250/250 traités, aucun 
    `POST {ANONYMIZER_URL}/api/v1/anonymize {"text": …} → {"anonymized_text": …}`.
    À vérifier/ajuster dans `_anonymize_text` — nécessaire pour le run e2e (n'a PAS
    bloqué le branchement).
-2. ⚠️ **Merge des 2 branches** : `__init__` de `SalesforceDataSource` est modifié à la
-   fois ici (création du pipeline) ET sur `feat/docker-ingestion-citymood` (injection
-   `.env`). → **petit conflit à résoudre** au merge dans `main` (garder les deux blocs).
+2. ✅ **Merge des 2 branches — vérifié SANS conflit** : `__init__` est modifié ici
+   (pipeline, en bas) ET sur `feat/docker-ingestion-citymood` (injection `.env`, en haut).
+   Un merge d'essai a montré que **git fusionne automatiquement les deux blocs** (modifs
+   à des endroits différents) → rien à résoudre. Vérifier quand même le `__init__` après
+   merge par sécurité.
 3. **Décision Mohamed** : ajouter `ImageTagStripper` / améliorer signatures, ou bruit
    actuel suffisant ?
 4. **Réactiver spaCy APRÈS l'anonymisation** quand l'archi de sortie sera fixée
