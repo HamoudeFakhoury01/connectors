@@ -58,3 +58,37 @@ def test_retire_clotures_attente():
         stripper.clean("Plus d'eau chaude.\nEn attente de votre retour,")
         == "Plus d'eau chaude."
     )
+
+
+def test_retire_merci_pur_et_courtoisie():
+    # Cat. A : "Merci." pur en fin -> retiré.
+    stripper = PolitenessStripper()
+    assert stripper.clean("Le bar fait du bruit. Merci.") == "Le bar fait du bruit."
+    # Cat. B : "Merci de me tenir informé / recontacter" = courtoisie de contact -> retiré.
+    assert (
+        stripper.clean("Le trottoir est défoncé. Merci de me tenir informé.")
+        == "Le trottoir est défoncé."
+    )
+    assert (
+        stripper.clean("Fuite au 3e. Merci de me recontacter au plus vite.")
+        == "Fuite au 3e."
+    )
+    # Cat. C : "merci de faire quelque chose" = filler vague -> retiré.
+    assert (
+        stripper.clean("Le bar fait du bruit jusqu'à 2h. merci de faire quelque chose.")
+        == "Le bar fait du bruit jusqu'à 2h."
+    )
+
+
+def test_garde_merci_de_action_precise():
+    # Cat. D : "Merci de + action précise" = LA demande du citoyen -> CONSERVÉE.
+    stripper = PolitenessStripper()
+    res = stripper.clean("Je conteste la facture. Merci de procéder au remboursement.")
+    assert "procéder au remboursement" in res
+
+
+def test_conserve_remercie_dans_le_contenu():
+    # Non-régression : "merci" dans "remercie/remerciements" ne doit PAS être coupé.
+    stripper = PolitenessStripper()
+    res = stripper.clean("Je vous remercie de votre écoute sur ce dossier.")
+    assert "remercie de votre écoute" in res

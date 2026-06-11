@@ -45,9 +45,17 @@ _STRONG_CLOSINGS = [
     r"sincères salutations",
     r"salutations distinguées",
     r"meilleures salutations",
-    r"merci (?:d'avance|par avance)",
     r"à bientôt",
     r"bonne (?:journée|soirée)",
+    # "Merci de me tenir informé / recontacter / rappeler…" = courtoisie de contact (cat. B).
+    # On ÉNUMÈRE les verbes sûrs : surtout PAS un "merci de .*" aveugle qui mangerait la demande.
+    r"merci de (?:me |nous )?(?:tenir informé(?:e|s|es)?|recontacter|rappeler|répondre|revenir vers)",
+    # "merci de faire quelque chose" = filler vague sans information (cat. C).
+    r"merci de faire quelque chose",
+    # "Merci" / "Merci beaucoup" / "Merci d'avance" SEUL = remerciement pur (cat. A).
+    # (?!\s+de\b) = GARDE-FOU : protège la cat. D ("Merci de procéder au remboursement…"
+    # = la demande réelle du citoyen, à NE PAS supprimer).
+    r"merci(?:\s+(?:beaucoup|infiniment|bien|d'avance|par avance))?(?!\s+de\b)",
 ]
 
 
@@ -70,7 +78,9 @@ class PolitenessStripper(Cleaner):
         # CLÔTURES FORTES : retirées n'importe où, jusqu'au bout de la ligne (avec
         # l'espace/saut de ligne qui précède). Gère "…sale. Merci d'avance.".
         strong = "|".join(_STRONG_CLOSINGS)
-        self._strong_closing_re = re.compile(rf"\s*(?:{strong})\b[^\n]*", flags)
+        # \b en tête : évite de matcher "merci" à l'intérieur de "remercier",
+        # "remerciements", etc. (sinon on couperait du contenu).
+        self._strong_closing_re = re.compile(rf"\s*\b(?:{strong})\b[^\n]*", flags)
 
     def clean(self, text: str) -> str:
         text = self._opening_re.sub("", text)
