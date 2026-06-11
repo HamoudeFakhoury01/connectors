@@ -25,6 +25,18 @@ def test_conserve_bonjour_au_milieu_de_phrase():
     assert "bonjour" in resultat
 
 
+def test_ouverture_inline_garde_le_contenu():
+    # BUG corrigé : une ouverture sur la MÊME ligne que le message ne doit PAS
+    # emporter la phrase (avant, toute la ligne était supprimée).
+    stripper = PolitenessStripper()
+
+    assert (
+        stripper.clean("Bonjour, le chauffage est en panne depuis 3 semaines.")
+        == "le chauffage est en panne depuis 3 semaines."
+    )
+    assert stripper.clean("Bonjour Madame, le parc est sale.") == "le parc est sale."
+
+
 def test_retire_clotures_attente():
     # "Dans l'attente," (sans "de") et "En attente de votre retour," doivent partir.
     stripper = PolitenessStripper()

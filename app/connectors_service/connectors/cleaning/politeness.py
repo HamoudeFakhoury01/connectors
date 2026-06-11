@@ -38,17 +38,20 @@ _CLOSINGS = [
 
 class PolitenessStripper(Cleaner):
     def __init__(self):
-        # On assemble chaque liste en une alternance (a|b|c), puis on compile
-        # un motif qui matche une LIGNE entière commençant par une formule.
-        #   ^\s*        : début de ligne + espaces éventuels
-        #   (?:...)     : une des formules
-        #   \b[^\n]*    : fin du mot + reste de la ligne
-        #   \n?         : le saut de ligne final (pour effacer la ligne entière)
         openings = "|".join(_OPENINGS)
         closings = "|".join(_CLOSINGS)
         flags = re.IGNORECASE | re.MULTILINE
-        self._opening_re = re.compile(rf"^\s*(?:{openings})\b[^\n]*\n?", flags)
-        self._closing_re = re.compile(rf"^\s*(?:{closings})\b[^\n]*\n?", flags)
+        # OUVERTURES : on retire le RUN de formules en début de ligne + leurs
+        # séparateurs (espaces, virgules…), MAIS PAS le contenu qui suit sur la
+        # même ligne. Ex. "Bonjour, le chauffage est en panne." -> on garde
+        # "le chauffage est en panne." (avant : toute la phrase était supprimée).
+        # [\s,.:;!?…–-]* = séparateurs uniquement, jamais du contenu.
+        self._opening_re = re.compile(
+            rf"^[ \t]*(?:(?:{openings})\b[\s,.:;!?…–-]*)+", flags
+        )
+        # CLÔTURES : en fin de message, après la formule il n'y a que de la
+        # politesse ou un nom (PII) -> on supprime toute la fin de ligne.
+        self._closing_re = re.compile(rf"^[ \t]*(?:{closings})\b[^\n]*\n?", flags)
 
     def clean(self, text: str) -> str:
         text = self._opening_re.sub("", text)
