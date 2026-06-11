@@ -454,7 +454,11 @@ class SalesforceDataSource(BaseDataSource):
                         attempt,
                         _HEALTH_MAX_ATTEMPTS,
                     )
-            except Exception as exc:
+            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                # On ne retry QUE sur erreur reseau (anonymiseur froid/injoignable).
+                # Tout autre exception (bug de code, mauvaise URL...) doit propager
+                # immediatement -> on ne masque pas une vraie erreur derriere 60s
+                # de retries trompeurs.
                 logger.warning(
                     "[Anonymizer] /health injoignable (tentative %s/%s) : %s",
                     attempt,
