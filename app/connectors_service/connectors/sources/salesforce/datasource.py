@@ -4,6 +4,7 @@
 # you may not use this file except in compliance with the Elastic License 2.0.
 #
 
+import asyncio
 import os
 from datetime import datetime
 from functools import partial
@@ -36,6 +37,10 @@ from connectors.sources.salesforce.constants import (
     WILDCARD,
 )
 from connectors.sources.salesforce.validator import SalesforceAdvancedRulesValidator
+
+# Warmup anonymiseur : ~60s max (30 tentatives x 2s) avant d'abandonner bruyamment.
+_HEALTH_MAX_ATTEMPTS = 30
+_HEALTH_RETRY_DELAY_S = 2
 
 
 def _prefix_user(user):
@@ -411,6 +416,10 @@ class SalesforceDataSource(BaseDataSource):
             return
 
         logger.info("Fetching Salesforce Cases for CityMood ingestion")
+        # Warmup : on attend que l'anonymiseur soit pret AVANT d'ingerer. Sinon,
+        # anonymiseur froid -> 1ers batchs en echec -> Cases valides perdus
+        # (fail-closed). Echec bruyant si jamais pret (cf. _wait_for_anonymizer).
+        await self._wait_for_anonymizer()
         async for case in self.salesforce_client.get_cases():
             await self._send_to_anonymizer(case)
 
@@ -423,6 +432,42 @@ class SalesforceDataSource(BaseDataSource):
                 timeout=aiohttp.ClientTimeout(total=30)
             )
         return self._http_session
+
+    async def _wait_for_anonymizer(self):
+        """Bloque jusqu'a ce que l'anonymiseur reponde 200 sur /api/v1/health.
+
+        Retries bornes, puis echec BRUYANT (RuntimeError) si jamais pret : on
+        REFUSE d'ingerer tant que l'anonymiseur est froid, pour ne perdre aucun
+        Case (l'alternative serait un fail-closed silencieux sur les 1ers batchs).
+        """
+        session = self._get_http_session()
+        url = f"{self._anonymizer_url}/api/v1/health"
+        for attempt in range(1, _HEALTH_MAX_ATTEMPTS + 1):
+            try:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        logger.info("[Anonymizer] healthy (tentative %s)", attempt)
+                        return
+                    logger.warning(
+                        "[Anonymizer] /health -> HTTP %s (tentative %s/%s)",
+                        resp.status,
+                        attempt,
+                        _HEALTH_MAX_ATTEMPTS,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "[Anonymizer] /health injoignable (tentative %s/%s) : %s",
+                    attempt,
+                    _HEALTH_MAX_ATTEMPTS,
+                    exc,
+                )
+            await asyncio.sleep(_HEALTH_RETRY_DELAY_S)
+
+        msg = (
+            f"Anonymiseur non 'healthy' apres {_HEALTH_MAX_ATTEMPTS} tentatives "
+            f"({url}) — ingestion annulee (RGPD : pas d'envoi sans anonymisation)."
+        )
+        raise RuntimeError(msg)
 
     async def _anonymize_batch(self, texts):
         """Anonymise une liste de textes via l'API batch de l'anonymiseur (Mehdi).
