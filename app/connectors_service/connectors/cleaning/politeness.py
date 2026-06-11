@@ -35,6 +35,21 @@ _CLOSINGS = [
     r"à bientôt",
 ]
 
+# Clôtures FORTES : formules qui ne sont JAMAIS du contenu. On les retire même au
+# MILIEU/FIN d'une ligne (ex. "Le parc est sale. Merci d'avance." -> "Le parc est
+# sale."). On EXCLUT les ambiguës (ex. "en attente" : "ma demande est en attente"
+# = du contenu) -> celles-là restent en début de ligne uniquement (via _CLOSINGS).
+_STRONG_CLOSINGS = [
+    r"cordialement",
+    r"bien (?:à vous|cordialement)",
+    r"sincères salutations",
+    r"salutations distinguées",
+    r"meilleures salutations",
+    r"merci (?:d'avance|par avance)",
+    r"à bientôt",
+    r"bonne (?:journée|soirée)",
+]
+
 
 class PolitenessStripper(Cleaner):
     def __init__(self):
@@ -49,11 +64,16 @@ class PolitenessStripper(Cleaner):
         self._opening_re = re.compile(
             rf"^[ \t]*(?:(?:{openings})\b[\s,.:;!?…–-]*)+", flags
         )
-        # CLÔTURES : en fin de message, après la formule il n'y a que de la
+        # CLÔTURES : en début de ligne, après la formule il n'y a que de la
         # politesse ou un nom (PII) -> on supprime toute la fin de ligne.
         self._closing_re = re.compile(rf"^[ \t]*(?:{closings})\b[^\n]*\n?", flags)
+        # CLÔTURES FORTES : retirées n'importe où, jusqu'au bout de la ligne (avec
+        # l'espace/saut de ligne qui précède). Gère "…sale. Merci d'avance.".
+        strong = "|".join(_STRONG_CLOSINGS)
+        self._strong_closing_re = re.compile(rf"\s*(?:{strong})\b[^\n]*", flags)
 
     def clean(self, text: str) -> str:
         text = self._opening_re.sub("", text)
         text = self._closing_re.sub("", text)
+        text = self._strong_closing_re.sub("", text)
         return text.strip()

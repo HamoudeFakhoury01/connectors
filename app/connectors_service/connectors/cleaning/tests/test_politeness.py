@@ -37,6 +37,18 @@ def test_ouverture_inline_garde_le_contenu():
     assert stripper.clean("Bonjour Madame, le parc est sale.") == "le parc est sale."
 
 
+def test_cloture_forte_inline_en_fin_de_ligne():
+    # Clôture forte en FIN de ligne de contenu -> retirée, contenu gardé.
+    stripper = PolitenessStripper()
+    assert stripper.clean("Le parc est sale. Merci d'avance.") == "Le parc est sale."
+    assert (
+        stripper.clean("La vitre est brisée. Bien à vous, Jean")
+        == "La vitre est brisée."
+    )
+    # MAIS "en attente" est ambigu (= du contenu) -> NON retiré en milieu de phrase.
+    assert "en attente" in stripper.clean("Ma demande est en attente de traitement.")
+
+
 def test_retire_clotures_attente():
     # "Dans l'attente," (sans "de") et "En attente de votre retour," doivent partir.
     stripper = PolitenessStripper()
