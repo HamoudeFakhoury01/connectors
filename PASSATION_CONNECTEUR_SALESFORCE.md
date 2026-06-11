@@ -1,7 +1,8 @@
 # Passation — Connecteur Salesforce CityMood
 
 > Document de passation pour le développement du connecteur Salesforce.
-> Dernière mise à jour : 01/06/2026 — boîte ingestion Docker + creds via `.env` (voir §3c, §7, §10)
+> Dernière mise à jour : 11/06/2026 — warmup `/health` avant ingestion + TODO tests `get_docs` (voir §7)
+> Précédente : 01/06/2026 — boîte ingestion Docker + creds via `.env` (voir §3c, §7, §10)
 > Précédente : 08/05/2026 — Mohamed
 
 ---
@@ -253,6 +254,15 @@ Le connecteur lit ces variables :
 5. **Polling configurable** : exposer `poll_interval_seconds` en variable d'env.
 6. **Permission Set Salesforce** : le scope `api` donne accès à TOUT le CRM. La vraie
    restriction se fait via un Permission Set lecture seule sur `Case` côté Issy.
+7. **Mettre à jour `tests/sources/test_salesforce.py`** _(dette héritée Mission 1)_.
+   On a réécrit `get_docs()` : avant, elle `yield`-ait des docs (contrat Elastic →
+   indexation ES) ; maintenant elle **pousse directement** chaque Case vers
+   l'anonymiseur puis le webhook (aucun `yield`). Les ~8 tests `async for record, _ in
+   source.get_docs()` testent donc l'**ancien** contrat → ils sont périmés/rouges sur
+   notre fork. À refaire : tests du nouveau `get_docs` (mock anonymiseur + webhook) +
+   un test du **warmup** `_wait_for_anonymizer` (cas healthy / cas fail-loud après
+   timeout — penser à mocker l'appel `GET /api/v1/health`). À cadrer avec Mohamed
+   (stratégie de test du connecteur). _Non bloquant : l'e2e de Mehdi couvre ce chemin._
 
 ### Plus tard
 7. ~~Dockerfile + docker-compose pour les 2 conteneurs.~~ → ✅ **FAIT (01/06/2026)** :
