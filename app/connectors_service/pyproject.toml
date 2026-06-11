@@ -40,9 +40,11 @@ dependencies = [
     "elastic-agent-client==0.0.1.dev2",
     "elastic-transport==8.17.1",
     "elasticsearch[async]==8.18.0",
+    "email-reply-parser==0.5.12",  # SignatureStripper (cleaning) - pur Python, remplace talon
     "envyaml==1.10.211231",
     "exchangelib==5.4.0",
     "fastjsonschema==2.16.2",
+    "ftfy==6.2.0",
     "gidgethub==5.2.1",
     "graphql-core==3.2.3",
     "httpx-ntlm==1.4.0",
@@ -144,6 +146,9 @@ filterwarnings = [
     "ignore::pytest.PytestUnraisableExceptionWarning",
     # this error comes from 8.16 Elasticsearch client: we use some non-GA features in our CI code
     "ignore::elasticsearch.exceptions.GeneralAvailabilityWarning",
+    # CityMood : email_reply_parser (SignatureStripper) passe `count` en positionnel
+    # à re.sub -> DeprecationWarning depuis Python 3.13. Bug interne de la lib, inoffensif.
+    "ignore::DeprecationWarning:email_reply_parser",
 ]
 
 [tool.pyright]
@@ -176,6 +181,11 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 "scripts/verify.py" = ["EM"]
 "tests/*" = ["B017", "S101", "S", "ASYNC110"]
 "tests/conftest.py" = ["EM"]
+# CityMood : tests co-localisés du module de nettoyage (asserts attendus en test)
+"connectors/cleaning/tests/*" = ["B017", "S101", "S", "ASYNC110"]
+# CityMood : code propre du module nettoyage -> pas le header copyright Elastic
+# (à confirmer avec Mohamed : décision de licence)
+"connectors/cleaning/**" = ["CPY001"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["connectors", "tests"]

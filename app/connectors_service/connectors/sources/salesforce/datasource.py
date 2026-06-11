@@ -20,6 +20,13 @@ from connectors.access_control import (
     es_access_control_query,
     prefix_identity,
 )
+from connectors.cleaning.encoding import EncodingFixer
+from connectors.cleaning.footer import FooterStripper
+from connectors.cleaning.pipeline import CleaningPipeline
+from connectors.cleaning.politeness import PolitenessStripper
+from connectors.cleaning.reply_chain import ReplyChainStripper
+from connectors.cleaning.signature import SignatureStripper
+from connectors.cleaning.url import UrlStripper
 from connectors.sources.salesforce.client import SalesforceClient
 from connectors.sources.salesforce.constants import (
     BASE_URL,
@@ -151,10 +158,21 @@ class SalesforceDataSource(BaseDataSource):
         self._anonymizer_url = os.environ.get(
             "ANONYMIZER_URL", "http://anonymizer-api:8000"
         )
+        self._anonymizer_api_key = os.environ.get("ANONYMIZER_API_KEY", "")
         self._citymood_ingest_url = os.environ.get("CITYMOOD_INGEST_URL", "")
         self._citymood_tenant_id = os.environ.get("CITYMOOD_TENANT_ID", "")
         self._webhook_secret = os.environ.get("WEBHOOK_SECRET", "")
         self._http_session = None  # cree au premier appel (lazy)
+        self._cleaning_pipeline = CleaningPipeline(
+            [
+                EncodingFixer(),
+                ReplyChainStripper(),
+                FooterStripper(),
+                UrlStripper(),
+                SignatureStripper(),
+                PolitenessStripper(),
+            ]
+        )
 
     def _set_internal_logger(self):
         self.salesforce_client.set_logger(self._logger)
@@ -406,28 +424,40 @@ class SalesforceDataSource(BaseDataSource):
             )
         return self._http_session
 
-    async def _anonymize_text(self, text):
-        """Appelle le service anonymizer et retourne le texte sans PII.
-        Si le texte est vide ou si l'appel echoue, on retourne le texte
-        tel quel (mode degrade : mieux vaut envoyer du brut que rien)."""
-        if not text or not text.strip():
-            return text
+    async def _anonymize_batch(self, texts):
+        """Anonymise une liste de textes via l'API batch de l'anonymiseur (Mehdi).
 
+        POST {ANONYMIZER_URL}/api/v1/anonymize/batch  (header X-API-Key)
+            requête : {"texts": [...]}
+            réponse : {"results": [{"anonymized_text": ..., "status": ...}, ...]}
+
+        Retourne la liste des textes anonymisés, OU None si l'appel échoue ou si
+        un statut n'est pas 'ok'. **Fail-closed (RGPD)** : en cas de doute on ne
+        renvoie rien → le Case ne sera PAS transmis (jamais de PII en clair).
+        """
         session = self._get_http_session()
         try:
             async with session.post(
-                f"{self._anonymizer_url}/api/v1/anonymize",
-                json={"text": text},
+                f"{self._anonymizer_url}/api/v1/anonymize/batch",
+                json={"texts": texts},
+                headers={"X-API-Key": self._anonymizer_api_key},
             ) as resp:
                 resp.raise_for_status()
-                data = await resp.json()
-                return data.get("anonymized_text", text)
+                results = (await resp.json())["results"]
         except Exception as exc:
-            logger.error("[Anonymizer] Echec anonymisation : %s", exc, exc_info=True)
-            # Fail-safe : on ne propage pas, on degrade vers texte brut.
-            # TODO : decider si on prefere skip le Case en cas d'echec
-            #        d'anonymisation (plus prudent RGPD).
-            return text
+            logger.error("[Anonymizer] echec appel batch : %s", exc, exc_info=True)
+            return None
+
+        anonymized = []
+        for res in results:
+            if res["status"] != "ok":
+                logger.warning(
+                    "[Anonymizer] statut '%s' -> Case non transmis (RGPD)",
+                    res["status"],
+                )
+                return None
+            anonymized.append(res["anonymized_text"])
+        return anonymized
 
     async def _send_to_anonymizer(self, case):
         """Pipeline complet pour un Case Salesforce :
@@ -443,8 +473,16 @@ class SalesforceDataSource(BaseDataSource):
             return
 
         payload = self.doc_mapper.map_to_citymood(case)
-        payload["subject"] = await self._anonymize_text(payload["subject"])
-        payload["content"] = await self._anonymize_text(payload["content"])
+        payload["subject"] = self._cleaning_pipeline.run(payload["subject"])
+        payload["content"] = self._cleaning_pipeline.run(payload["content"])
+
+        # Anonymisation en batch (subject + content en 1 seul appel).
+        anonymized = await self._anonymize_batch(
+            [payload["subject"], payload["content"]]
+        )
+        if anonymized is None:
+            return  # RGPD : anonymisation échouée/refusée -> on n'envoie rien
+        payload["subject"], payload["content"] = anonymized
 
         session = self._get_http_session()
         headers = {
